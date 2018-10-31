@@ -6,7 +6,13 @@
  */
 package pipeline
 
-import "sort"
+import (
+	"encoding/binary"
+	"fmt"
+	"io"
+	"math/rand"
+	"sort"
+)
 
 /**
  * <p>Description: (排序原数组数组) </p>
@@ -20,6 +26,7 @@ func ArraySource(in ...int) <-chan int {
 	out := make(chan int)
 	//并发，开一个goroutine
 	//操作channel,向channel中set值
+	//使用channel就是配合goroutine使用的，所以给channel set值的时候开启goroutine
 	go func() {
 		for _, v := range in {
 			out <- v
@@ -69,7 +76,7 @@ func Merge(int1, int2 <-chan int) <-chan int {
 	go func() {
 		//检测两个节点中是否含有数据
 		//如果其中一个已经没有数据了那么就不需要比较了，只从另一个中获取就可以了
-		//go中已经做了处理，过来时两方已经排完序，机制未了解
+		//排序接口中当排完序才会往channel中set值
 		v1, ok1 := <-int1
 		v2, ok2 := <-int2
 		for ok1 || ok2 {
@@ -86,5 +93,73 @@ func Merge(int1, int2 <-chan int) <-chan int {
 		}
 		close(out)
 	}()
+	return out
+}
+
+/**
+ * <p>Description: (从reader中读取信息) </p>
+ * @author lizhi_duan
+ * @date 2018/10/30 21:57
+ */
+func ReadSource(reader io.Reader) <-chan int {
+	out := make(chan int)
+	go func() {
+		buffer := make([]byte, 8)
+		for {
+			n, err := reader.Read(buffer)
+			//n>0代表还有剩余数据，err不为nil代表buffer中未读满8个字节
+			//先判断n则是因为如果剩余字节不到8个，也将剩余的字节全部读到
+			if n > 0 {
+				//字节序包括：大端序和小端序
+				//而所谓大字节序（big endian），便是指其“最高有效位（most significant byte）”落在低地址上的存储方式
+				//而对于小字节序（little endian）来说就正好相反了，它把“最低有效位（least significant byte）”放在低地址上
+				u := binary.BigEndian.Uint64(buffer)
+				out <- int(u)
+			}
+			if err != nil {
+				break
+			}
+		}
+		close(out)
+	}()
+	return out
+}
+
+/**
+ * <p>Description: (写数据) </p>
+ * @author lizhi_duan
+ * @date 2018/10/30 22:24
+ */
+func WriteSink(writer io.Writer, in <-chan int) {
+	for v := range in {
+		buffer := make([]byte, 8)
+		binary.BigEndian.PutUint64(buffer, uint64(v))
+		writer.Write(buffer)
+	}
+}
+
+/**
+ * <p>Description: (随机生成元数据) </p>
+ * @author lizhi_duan
+ * @date 2018/10/30 22:31
+ */
+func RandomSource(count int) <-chan int {
+	out := make(chan int)
+	//给channel设置值的时候不放到goroutine内，同样造成deadlock，原理目前不明
+	//for i := 0; i < count; i++ {
+	//	r := rand.Int()
+	//	fmt.Print(r, " ")
+	//	out <- r
+	//}
+	//close(out)
+	go func() {
+		for i := 0; i < count; i++ {
+			r := rand.Int()
+			fmt.Print(r, " ")
+			out <- r
+		}
+		close(out)
+	}()
+
 	return out
 }
